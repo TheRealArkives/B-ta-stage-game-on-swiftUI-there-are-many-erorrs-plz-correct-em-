@@ -1,0 +1,492 @@
+import SwiftUI
+import AVFoundation
+import PlaygroundSupport
+
+// Helper for playing sound
+var clickSoundEffect: AVAudioPlayer?
+var backgroundMusic: AVAudioPlayer?
+
+func playSound(named soundName: String) {
+    guard let path = Bundle.main.path(forResource: soundName, ofType: "wav") else {
+        print("Sound file not found")
+        return
+    }
+    let url = URL(fileURLWithPath: path)
+    do {
+        clickSoundEffect = try AVAudioPlayer(contentsOf: url)
+        clickSoundEffect?.play()
+    } catch {
+        print("Error loading sound file: \(error.localizedDescription)")
+    }
+}
+
+func playBackgroundMusic() {
+    guard let path = Bundle.main.path(forResource: "background", ofType: "mp3") else {
+        print("Background music file not found")
+        return
+    }
+    let url = URL(fileURLWithPath: path)
+    do {
+        backgroundMusic = try AVAudioPlayer(contentsOf: url)
+        backgroundMusic?.numberOfLoops = -1 // Infinite loop
+        backgroundMusic?.play()
+    } catch {
+        print("Error loading background music file: \(error.localizedDescription)")
+    }
+}
+
+// Particle effect for click
+struct ParticleView: UIViewRepresentable {
+    var position: CGPoint
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        let emitter = CAEmitterLayer()
+        emitter.emitterPosition = position
+        emitter.emitterShape = .circle
+        emitter.emitterSize = CGSize(width: 10, height: 10)
+        emitter.emitterCells = createEmitterCells()
+        view.layer.addSublayer(emitter)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            emitter.birthRate = 0
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    private func createEmitterCells() -> [CAEmitterCell] {
+        var cells: [CAEmitterCell] = []
+        for _ in 0..<10 {
+            let cell = CAEmitterCell()
+            cell.contents = UIImage(named: "spark")?.cgImage
+            cell.birthRate = 10
+            cell.lifetime = 1.0
+            cell.velocity = CGFloat.random(in: 100...200)
+            cell.scale = 0.1
+            cell.emissionRange = .pi * 2
+            cells.append(cell)
+        }
+        return cells
+    }
+}
+
+// High Scores View
+struct HighScoresView: View {
+    @State private var highScores = UserDefaults.standard.array(forKey: "HighScores") as? [Int] ?? []
+
+    var body: some View {
+        VStack {
+            Text("High Scores")
+                .font(.system(size: 48, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .shadow(color: .black, radius: 10, x: 0, y: 10)
+                .padding()
+
+            List {
+                ForEach(highScores.sorted(by: >), id: \.self) { score in
+                    Text("\(score)")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundColor(.black)
+                }
+            }
+            .listStyle(PlainListStyle())
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .shadow(radius: 10)
+            .padding()
+
+            Button(action: {
+                UserDefaults.standard.removeObject(forKey: "HighScores")
+                highScores.removeAll()
+            }) {
+                Text("Clear Scores")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .padding()
+                    .background(
+                        LinearGradient(gradient: Gradient(colors: [.red, .orange]), startPoint: .top, endPoint: .bottom)
+                    )
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .shadow(radius: 10)
+            }
+            .padding()
+        }
+        .background(
+            LinearGradient(gradient: Gradient(colors: [.blue, .purple, .black]), startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+        )
+    }
+}
+
+func saveHighScore(_ score: Int) {
+    var highScores = UserDefaults.standard.array(forKey: "HighScores") as? [Int] ?? []
+    highScores.append(score)
+    highScores.sort(by: >)
+    if highScores.count > 10 {
+        highScores.removeLast()
+    }
+    UserDefaults.standard.set(highScores, forKey: "HighScores")
+}
+
+// Glow Effect
+extension View {
+    func glow(color: Color = .white, radius: CGFloat = 20) -> some View {
+        self
+            .shadow(color: color, radius: radius / 3)
+            .shadow(color: color, radius: radius / 3)
+            .shadow(color: color, radius: radius / 3)
+    }
+}
+
+// Particle Struct
+struct Particle: Identifiable {
+    let id: UUID
+    var position: CGPoint
+    let color: Color
+    let size: CGFloat
+    var velocity: CGSize
+}
+
+extension Particle {
+    mutating func update(delta: TimeInterval) {
+        position.x += velocity.width * CGFloat(delta)
+        position.y += velocity.height * CGFloat(delta)
+        velocity.width *= 0.99
+        velocity.height *= 0.99
+    }
+}
+
+// Particle View
+struct ParticleView: View {
+    @State private var particles: [Particle]
+    let timer = Timer.publish(every: 0.016, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ForEach(particles) { particle in
+            Circle()
+                .fill(particle.color)
+                .frame(width: particle.size, height: particle.size)
+                .position(particle.position)
+                .onReceive(timer) { _ in
+                    updateParticles()
+                }
+        }
+    }
+
+    func updateParticles() {
+        let delta = 0.016
+        for i in 0..<particles.count {
+            particles[i].update(delta: delta)
+        }
+    }
+}
+
+// Menu View
+struct MenuView: View {
+    @Binding var inGame: Bool
+    @State private var showHighScores = false
+    @State private var showTutorial = false
+    @State private var selectedTheme = 1
+
+    var body: some View {
+        VStack {
+            Spacer()
+
+            Text("Tap The Circle")
+                .font(.system(size: 64, weight: .heavy, design: .rounded))
+                .foregroundColor(.white)
+                .shadow(color: .black, radius: 10, x: 0, y: 10)
+                .padding()
+
+            Spacer()
+
+            Button(action: {
+                inGame = true
+                playBackgroundMusic()
+            }) {
+                Text("Start Game")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .padding()
+                    .background(
+                        LinearGradient(gradient: Gradient(colors: [.green, .yellow]), startPoint: .top, endPoint: .bottom)
+                    )
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .shadow(radius: 10)
+            }
+            .padding()
+
+            Button(action: {
+                showTutorial = true
+            }) {
+                Text("Tutorial")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .padding()
+                    .background(
+                        LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+                    )
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .shadow(radius: 10)
+            }
+            .padding()
+
+            Button(action: {
+                showHighScores = true
+            }) {
+                Text("High Scores")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .padding()
+                    .background(
+                        LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+                    )
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .shadow(radius: 10)
+            }
+            .padding()
+            .sheet(isPresented: $showHighScores) {
+                HighScoresView()
+            }
+
+            Picker("Select Theme", selection: $selectedTheme) {
+                Text("Theme 1").tag(1)
+                Text("Theme 2").tag(2)
+                Text("Theme 3").tag(3)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .padding()
+
+            Spacer()
+        }
+        .background(
+            LinearGradient(gradient: Gradient(colors: [.blue, .purple, .black]), startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+        )
+    }
+}
+
+// Game View
+struct GameView: View {
+    @State private var score = 0
+    @State private var targetPosition = CGPoint(x: 100, y: 100)
+    @State private var gameOver = false
+    @State private var circleSize: CGFloat = 100
+    @State private var inGame = false
+    @State private var particles = [Particle]()
+    private let margin: CGFloat = 100
+    private let minMargin: CGFloat = 700
+    @State private var selectedTheme = 1
+
+    var body: some View {
+        ZStack {
+            // Background
+            backgroundGradient
+
+            if inGame {
+                // Game Elements
+                if !gameOver {
+                    VStack {
+                        Text("Score: \(score)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .shadow(color: .black, radius: 10, x: 0, y: 10)
+                            .padding()
+
+                        Spacer()
+
+                        Circle()
+                            .fill(
+                                RadialGradient(gradient: Gradient(colors: [.white, .blue]), center: .center, startRadius: 0, endRadius: 100)
+                            )
+                            .frame(width: circleSize, height: circleSize)
+                            .shadow(radius: 10)
+                            .position(targetPosition)
+                            .onTapGesture {
+                                playSound(named: "click")
+                                score += 1
+                                moveTarget()
+                                addParticles(at: targetPosition)
+                            }
+                            .animation(.easeInOut(duration: 0.5), value: targetPosition)
+                            .transition(.scale)
+                    }
+
+                    // Game Over Button
+                    VStack {
+                        Spacer()
+                        Button(action: {
+                            saveHighScore(score)
+                            resetGame()
+                        }) {
+                            Text("Play Again")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .padding()
+                                .background(
+                                    LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+                                )
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                                .shadow(radius: 10)
+                        }
+                        .padding()
+                    }
+                } else {
+                    VStack {
+                        Text("Game Over")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .shadow(color: .black, radius: 10, x: 0, y: 10)
+                            .padding()
+
+                        Text("Your final score is \(score)")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .shadow(color: .black, radius: 10, x: 0, y: 10)
+                            .padding()
+
+                        Button(action: {
+                            saveHighScore(score)
+                            resetGame()
+                        }) {
+                            Text("Play Again")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .padding()
+                                .background(
+                                    LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+                                )
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                                .shadow(radius: 10)
+                        }
+                        .padding()
+                    }
+                }
+            } else {
+                MenuView(inGame: $inGame)
+            }
+
+            ForEach(particles) { particle in
+                Circle()
+                    .fill(particle.color)
+                    .frame(width: particle.size, height: particle.size)
+                    .position(particle.position)
+            }
+        }
+        .onAppear {
+            if inGame {
+                startGame()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    var backgroundGradient: LinearGradient {
+        switch selectedTheme {
+        case 1:
+            return LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+        case 2:
+            return LinearGradient(gradient: Gradient(colors: [.green, .yellow]), startPoint: .top, endPoint: .bottom)
+        case 3:
+            return LinearGradient(gradient: Gradient(colors: [.red, .orange]), startPoint: .top, endPoint: .bottom)
+        default:
+            return LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    func moveTarget() {
+        // Move the circle to a new random position with a larger margin
+        let x = CGFloat.random(in: margin...(UIScreen.main.bounds.width - margin))
+        let y = CGFloat.random(in: margin...(UIScreen.main.bounds.height - margin))
+
+        targetPosition = CGPoint(x: x, y: y)
+
+        // Randomly change the size of the circle
+        circleSize = CGFloat.random(in: 50...150)
+    }
+
+    func resetGame() {
+        score = 0
+        gameOver = false
+        startGame()
+    }
+
+    func startGame() {
+        // Reset game parameters
+        moveTarget()
+
+        // End the game after 30 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            gameOver = true
+        }
+    }
+
+    func addParticles(at position: CGPoint) {
+        let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink]
+        for _ in 0..<20 {
+            let particle = Particle(
+                id: UUID(),
+                position: position,
+                color: colors.randomElement()!,
+                size: CGFloat.random(in: 5...20),
+                velocity: CGSize(width: CGFloat.random(in: -100...100), height: CGFloat.random(in: -100...100))
+            )
+            particles.append(particle)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.particles.removeAll()
+        }
+    }
+}
+
+struct ContentView: View {
+    var body: some View {
+        ZStack {
+            AnimatedBackgroundView()
+            GameView()
+        }
+    }
+}
+
+PlaygroundPage.current.setLiveView(ContentView().frame(width: 600, height: 800))
+
+struct AnimatedBackgroundView: View {
+    @State private var animate = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: geometry.size.width * 0.3, height: geometry.size.width * 0.3)
+                    .position(x: animate ? geometry.size.width * 0.2 : geometry.size.width * 0.8,
+                              y: animate ? geometry.size.height * 0.3 : geometry.size.height * 0.7)
+                    .blur(radius: 100)
+                    .animation(Animation.easeInOut(duration: 5).repeatForever(autoreverses: true))
+
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: geometry.size.width * 0.4, height: geometry.size.width * 0.4)
+                    .position(x: animate ? geometry.size.width * 0.7 : geometry.size.width * 0.3,
+                              y: animate ? geometry.size.height * 0.8 : geometry.size.height * 0.2)
+                    .blur(radius: 100)
+                    .animation(Animation.easeInOut(duration: 7).repeatForever(autoreverses: true))
+
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: geometry.size.width * 0.5, height: geometry.size.width * 0.5)
+                    .position(x: animate ? geometry.size.width * 0.5 : geometry.size.width * 0.1,
+                              y: animate ? geometry.size.height * 0.5 : geometry.size.height * 0.9)
+                    .blur(radius: 100)
+                    .animation(Animation.easeInOut(duration: 10).repeatForever(autoreverses: true))
+            }
+            .onAppear {
+                self.animate.toggle()
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
